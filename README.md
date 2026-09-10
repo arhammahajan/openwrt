@@ -11,6 +11,60 @@ full customization, to use the device in ways never envisioned.
 
 Sunshine!
 
+---
+
+## D-Link AQUILA PRO AI M30 A1 (`ubootmod` Merged Partitions)
+
+This branch (`dlink-m30-custom`) is based on **OpenWrt 25.12** (`openwrt-25.12`) and adds support for the **D-Link AQUILA PRO AI M30 (A1)** with a merged partition layout (`ubootmod`), ported from kszaq's `openwrt-24.10-dlink-m30-cp-experiment` branch and adapted for OpenWrt 25.12.
+
+### Background & Motivation
+
+Stock D-Link M30 firmware splits the flash storage across two redundant UBI partitions (`ubi` at `0x580000` and `ubi1` at `0x3780000`), each sized at 50 MB (0x3200000). While the stock OpenWrt target preserves this layout, it severely restricts available user space for rootfs and installed packages to under 50 MB.
+
+This custom `ubootmod` target squashes both consecutive 50 MB partitions into a single **100 MB** (`0x6400000` / 102,400 KiB) UBI partition, doubling the usable storage capacity.
+
+### Summary of Changes over OpenWrt 25.12
+
+| Component | Path | Description |
+| :--- | :--- | :--- |
+| **DTS Split** | [`target/linux/mediatek/dts/mt7981b-dlink-aquila-pro-ai-m30-a1.dtsi`](target/linux/mediatek/dts/mt7981b-dlink-aquila-pro-ai-m30-a1.dtsi) | Refactored shared MT7981B hardware configuration (Ethernet GMACs, MT7531 switch ports, SPI-NAND flash, GPIO keys, I2C LED controller, and WiFi nvmem cell bindings) into a reusable DTSI. |
+| **Stock DTS** | [`target/linux/mediatek/dts/mt7981b-dlink-aquila-pro-ai-m30-a1.dts`](target/linux/mediatek/dts/mt7981b-dlink-aquila-pro-ai-m30-a1.dts) | Preserved the stock dual-partition DTS by including the DTSI and declaring the stock 50 MB `ubi` + `ubi1` partitions. |
+| **Merged DTS** | [`target/linux/mediatek/dts/mt7981b-dlink-aquila-pro-ai-m30-a1-ubootmod.dts`](target/linux/mediatek/dts/mt7981b-dlink-aquila-pro-ai-m30-a1-ubootmod.dts) | Added custom DTS declaring the merged 100 MB (`0x6400000`) `ubi` partition starting at `0x580000`. |
+| **Target & Image Recipes** | [`target/linux/mediatek/image/filogic.mk`](target/linux/mediatek/image/filogic.mk) | Added target profile `dlink_aquila-pro-ai-m30-a1-ubootmod`: builds `sysupgrade.bin` and stock web recovery compatible `recovery.bin` (using `dlink-ai-recovery-header DLK6E6110001` padded to 51200k). |
+| **Platform Upgrade Scripts** | [`target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh`](target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh) | Added `dlink_initial_setup()` called during initramfs pre-upgrade: updates `fw_setenv mtdparts` to register the 100 MB `ubi` partition and sets `fw_setenv mupgrade_en 0` to disable stock dual-boot / auto-upgrade fallback. |
+| **Network Configuration** | [`target/linux/mediatek/filogic/base-files/etc/board.d/02_network`](target/linux/mediatek/filogic/base-files/etc/board.d/02_network) | Added `dlink,aquila-pro-ai-m30-a1-ubootmod` interface definitions (`lan1 lan2 lan3 lan4` + `internet`). |
+| **MAC Address Hotplug** | [`target/linux/mediatek/filogic/base-files/etc/hotplug.d/ieee80211/11_fix_wifi_mac`](target/linux/mediatek/filogic/base-files/etc/hotplug.d/ieee80211/11_fix_wifi_mac) | Configured WiFi MAC extraction from `Odm` partition offset `0x81`. |
+| **U-Boot Tools** | [`package/boot/uboot-tools/uboot-envtools/files/mediatek_filogic`](package/boot/uboot-tools/uboot-envtools/files/mediatek_filogic) | Added environment mapping for `/dev/mtd1` (offset `0x0`, size `0x40000`). |
+
+### Partition Comparison
+
+* **Stock Layout (`mt7981b-dlink-aquila-pro-ai-m30-a1.dts`)**:
+  * `ubi`: `0x580000` - `0x3780000` (50 MiB)
+  * `ubi1`: `0x3780000` - `0x6980000` (50 MiB, read-only)
+* **OpenWrt Merged Layout (`mt7981b-dlink-aquila-pro-ai-m30-a1-ubootmod.dts`)**:
+  * `ubi`: `0x580000` - `0x6980000` (100 MiB)
+
+### Building the Firmware
+
+1. Configure feeds:
+   ```bash
+   ./scripts/feeds update -a
+   ./scripts/feeds install -a
+   ```
+2. Select target configuration in `make menuconfig`:
+   * **Target System**: `MediaTek Ralink ARM`
+   * **Subtarget**: `Filogic 820 / MT7981 boards`
+   * **Target Profile**: `D-Link AQUILA PRO AI M30 (OpenWrt partition layout)`
+3. Compile:
+   ```bash
+   make -j$(nproc)
+   ```
+4. Output images will be generated in `bin/targets/mediatek/filogic/`:
+   * `openwrt-mediatek-filogic-dlink_aquila-pro-ai-m30-a1-ubootmod-initramfs-recovery.bin`: For initial installation via stock D-Link emergency recovery web interface.
+   * `openwrt-mediatek-filogic-dlink_aquila-pro-ai-m30-a1-ubootmod-squashfs-sysupgrade.bin`: For subsequent sysupgrades from OpenWrt.
+
+---
+
 ## Download
 
 Built firmware images are available for many architectures and come with a
